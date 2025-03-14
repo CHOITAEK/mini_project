@@ -4,6 +4,8 @@ import easyocr
 import cv2
 import numpy as np
 import re
+import os
+from datetime import datetime
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QListWidget
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
@@ -25,6 +27,10 @@ class LicensePlateRecognitionApp(QWidget):
 
         self.captured_image = None
 
+        # 저장 폴더 생성
+        if not os.path.exists("image"):
+            os.makedirs("image")
+
     def initUI(self):
         self.setWindowTitle('차량 번호판 인식 시스템')
         self.setGeometry(100, 100, 1280, 720)
@@ -40,9 +46,9 @@ class LicensePlateRecognitionApp(QWidget):
 
         self.list_plates = QListWidget(self)
 
-        layout = QHBoxLayout()
-        left_layout = QVBoxLayout()
-        right_layout = QVBoxLayout()
+        layout = QVBoxLayout()
+        top_layout = QHBoxLayout()
+        bottom_layout = QVBoxLayout()
 
         left_layout = QVBoxLayout()
         left_layout.setSpacing(5)  # 간격 조절
@@ -53,12 +59,15 @@ class LicensePlateRecognitionApp(QWidget):
         right_layout.setSpacing(5)  # 간격 조절
         right_layout.addWidget(QLabel("분석된 이미지"))
         right_layout.addWidget(self.label_captured)
-        right_layout.addWidget(QLabel("인식된 번호판"))
-        right_layout.addWidget(self.list_plates)
 
+        top_layout.addLayout(left_layout)
+        top_layout.addLayout(right_layout)
 
-        layout.addLayout(left_layout)
-        layout.addLayout(right_layout)
+        bottom_layout.addWidget(QLabel("인식된 번호판"))
+        bottom_layout.addWidget(self.list_plates)
+
+        layout.addLayout(top_layout)
+        layout.addLayout(bottom_layout)
         self.setLayout(layout)
 
     def showEvent(self, event):
@@ -77,15 +86,17 @@ class LicensePlateRecognitionApp(QWidget):
                 plates, processed_img = self.detect_license_plates(self.captured_image)
                 self.display_image(processed_img, self.label_captured)
                 self.display_plates(plates)
+                self.save_image(processed_img, plates)
 
     def detect_license_plates(self, img):
         results = self.model(img)
+        plates = []
+
         for *xyxy, conf, cls in results.xyxy[0]:
             if conf > 0.4 and int(cls) == 2:
                 x1, y1, x2, y2 = map(int, xyxy)
                 cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
 
-        plates = []
         for bbox, text, conf in self.reader.readtext(img):
             if conf > 0.3:
                 filtered_text = re.sub(r'[^가-힣0-9]', '', text)
@@ -108,6 +119,19 @@ class LicensePlateRecognitionApp(QWidget):
         self.list_plates.clear()
         for idx, plate in enumerate(plates):
             self.list_plates.addItem(f'차량 {idx+1}: {plate}')
+
+    def save_image(self, img, plates):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"image/captured_{timestamp}.png"
+        cv2.imwrite(filename, img)
+        print(f"이미지 저장됨: {filename}")
+        
+        # 번호판 정보 저장
+        plate_filename = f"image/captured_{timestamp}.txt"
+        with open(plate_filename, "w") as f:
+            for idx, plate in enumerate(plates):
+                f.write(f'차량 {idx+1}: {plate}\n')
+        print(f"번호판 저장됨: {plate_filename}")
 
     def closeEvent(self, event):
         self.cap.release()
